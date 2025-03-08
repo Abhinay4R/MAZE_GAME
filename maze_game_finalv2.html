@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Maze Adventure</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+            font-family: 'Arial', sans-serif;
+            color: #333;
+        }
+        #gameContainer {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        canvas {
+            border: 2px solid #333;
+            background-color: #fff;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+        }
+        #gameOverlay {
+            position: absolute;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.7);
+            color: white;
+            font-size: 24px;
+            text-shadow: 2px 2px 10px rgba(0, 0, 0, 0.7);
+        }
+        button {
+            margin: 10px;
+            padding: 15px 25px;
+            font-size: 16px;
+            background-color: #5cb85c;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #4cae4c;
+        }
+        .sidePanel {
+            margin-left: 30px;
+            font-size: 18px;
+            max-width: 250px;
+            line-height: 1.5;
+        }
+        .sidePanel h2 {
+            font-size: 24px;
+            color: #5cb85c;
+        }
+        .sidePanel p {
+            color: #444;
+            font-size: 16px;
+            text-align: justify;
+        }
+        #gameOverlay h1 {
+            font-size: 50px;
+            margin-bottom: 20px;
+        }
+        #gameOverlay p {
+            margin-bottom: 10px;
+        }
+        .gameStats {
+            font-size: 20px;
+            margin-bottom: 15px;
+        }
+        .gameStats span {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="mazeCanvas" width="600" height="400"></canvas>
+        <div class="sidePanel">
+            <h2>Instructions</h2>
+            <p>Use <strong>WASD</strong> to Dash towards the wall in the respective direction.<br>
+            Use <strong>Arrow Keys</strong> to move one square at a time. The goal is to reach the exit of the maze!</p>
+            <div class="gameStats">
+                <div>Moves: <span id="moveCounter">0</span></div>
+                <div>Best Moves: <span id="bestMoves">-</span></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="gameOverlay">
+        <h1>You Won!</h1>
+        <p id="finalMoves"></p>
+        <button id="sameMapBtn">Replay Same Maze</button>
+        <button id="newMapBtn">New Maze</button>
+    </div>
+
+    <script>
+        class MazeGame {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.cellSize = 20;
+                this.rows = canvas.height / this.cellSize;
+                this.cols = canvas.width / this.cellSize;
+                this.maze = [];
+                this.player = { x: 0, y: 0 };
+                this.exit = { x: this.cols - 1, y: this.rows - 1 };
+                this.moveCount = 0;
+                this.bestMoves = Infinity;
+                this.savedMaze = null;
+                this.exitReached = false;
+
+                this.moveCounterElem = document.getElementById('moveCounter');
+                this.bestMovesElem = document.getElementById('bestMoves');
+                this.gameOverlay = document.getElementById('gameOverlay');
+                this.finalMovesElem = document.getElementById('finalMoves');
+                this.sameMapBtn = document.getElementById('sameMapBtn');
+                this.newMapBtn = document.getElementById('newMapBtn');
+
+                this.setupButtons();
+                this.generateMaze();
+                this.drawMaze();
+                this.setupControls();
+            }
+
+            dashPlayer(dx, dy) {
+                // Dash until hitting a wall
+                while (
+                    this.player.x + dx >= 0 && 
+                    this.player.x + dx < this.cols && 
+                    this.player.y + dy >= 0 && 
+                    this.player.y + dy < this.rows && 
+                    this.maze[this.player.y + dy][this.player.x + dx] === 0
+                ) {
+                    this.player.x += dx;
+                    this.player.y += dy;
+                    this.moveCount++;
+                }
+
+                this.moveCounterElem.textContent = this.moveCount;
+                this.drawMaze();
+                this.checkWinCondition();
+            }
+
+            setupButtons() {
+                this.sameMapBtn.addEventListener('click', () => {
+                    this.resetGame(false);
+                });
+
+                this.newMapBtn.addEventListener('click', () => {
+                    this.resetGame(true);
+                });
+            }
+
+            resetGame(newMaze) {
+                this.gameOverlay.style.display = 'none';
+                this.moveCount = 0;
+                this.moveCounterElem.textContent = '0';
+                this.player = { x: 0, y: 0 };
+                this.exitReached = false;
+
+                if (newMaze) {
+                    this.bestMoves = Infinity;
+                    this.bestMovesElem.textContent = '-';
+                    this.generateMaze();
+                } else {
+                    this.maze = JSON.parse(JSON.stringify(this.savedMaze));
+                }
+
+                this.drawMaze();
+            }
+
+            checkWinCondition() {
+                if (
+                    !this.exitReached && 
+                    this.player.x === this.exit.x && 
+                    this.player.y === this.exit.y
+                ) {
+                    this.exitReached = true;
+                }
+
+                // Show victory screen when leaving exit square
+                if (
+                    this.exitReached && 
+                    (this.player.x !== this.exit.x || this.player.y !== this.exit.y)
+                ) {
+                    if (this.moveCount < this.bestMoves) {
+                        this.bestMoves = this.moveCount;
+                        this.bestMovesElem.textContent = this.bestMoves;
+                    }
+
+                    this.finalMovesElem.textContent = `Moves taken: ${this.moveCount}`;
+                    this.gameOverlay.style.display = 'flex';
+                }
+            }
+
+            generateMaze() {
+                for (let y = 0; y < this.rows; y++) {
+                    this.maze[y] = [];
+                    for (let x = 0; x < this.cols; x++) {
+                        this.maze[y][x] = 1;
+                    }
+                }
+
+                const visited = Array.from({ length: this.rows }, () => 
+                    Array(this.cols).fill(false)
+                );
+
+                const directions = [
+                    [1, 0], [0, 1], [-1, 0], [0, -1]
+                ];
+
+                const createMaze = (x, y) => {
+                    visited[y][x] = true;
+                    this.maze[y][x] = 0;
+
+                    directions.sort(() => Math.random() - 0.5);
+
+                    for (const [dx, dy] of directions) {
+                        const newX = x + dx * 2;
+                        const newY = y + dy * 2;
+
+                        if (
+                            newX >= 0 && newX < this.cols &&
+                            newY >= 0 && newY < this.rows &&
+                            !visited[newY][newX]
+                        ) {
+                            this.maze[y + dy][x + dx] = 0;
+                            createMaze(newX, newY);
+                        }
+                    }
+                };
+
+                this.maze[0][0] = 0;
+                this.maze[this.rows - 1][this.cols - 1] = 0;
+
+                const exitAdjacent = [
+                    [this.rows - 1, this.cols], 
+                    [this.rows, this.cols - 1], 
+                    [this.rows - 1, this.cols - 2], 
+                    [this.rows - 2, this.cols - 1]
+                ];
+
+                exitAdjacent.forEach(([y, x]) => {
+                    if (y >= 0 && y < this.rows && x >= 0 && x < this.cols) {
+                        this.maze[y][x] = 0;
+                    }
+                });
+
+                createMaze(0, 0);
+
+                this.savedMaze = JSON.parse(JSON.stringify(this.maze));
+            }
+
+            drawMaze() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+                this.ctx.fillStyle = 'black';
+                for (let y = 0; y < this.rows; y++) {
+                    for (let x = 0; x < this.cols; x++) {
+                        if (this.maze[y][x] === 1) {
+                            this.ctx.fillRect(
+                                x * this.cellSize, 
+                                y * this.cellSize, 
+                                this.cellSize, 
+                                this.cellSize
+                            );
+                        }
+                    }
+                }
+
+                this.ctx.fillStyle = 'green';
+                this.ctx.fillRect(
+                    this.player.x * this.cellSize, 
+                    this.player.y * this.cellSize, 
+                    this.cellSize, 
+                    this.cellSize
+                );
+
+                this.ctx.fillStyle = 'red';
+                this.ctx.fillRect(
+                    this.exit.x * this.cellSize, 
+                    this.exit.y * this.cellSize, 
+                    this.cellSize, 
+                    this.cellSize
+                );
+            }
+
+            movePlayer(dx, dy) {
+                const newX = this.player.x + dx;
+                const newY = this.player.y + dy;
+
+                if (
+                    newX >= 0 && 
+                    newX < this.cols && 
+                    newY >= 0 && 
+                    newY < this.rows && 
+                    this.maze[newY][newX] === 0
+                ) {
+                    this.player.x = newX;
+                    this.player.y = newY;
+
+                    this.moveCount++;
+                    this.moveCounterElem.textContent = this.moveCount;
+
+                    this.drawMaze();
+                    this.checkWinCondition();
+                }
+            }
+
+            setupControls() {
+                window.addEventListener('keydown', (e) => {
+                    switch(e.key.toLowerCase()) {
+                        case 'arrowup': this.movePlayer(0, -1); break;
+                        case 'arrowdown': this.movePlayer(0, 1); break;
+                        case 'arrowleft': this.movePlayer(-1, 0); break;
+                        case 'arrowright': this.movePlayer(1, 0); break;
+
+                        case 'w': this.dashPlayer(0, -1); break;
+                        case 's': this.dashPlayer(0, 1); break;
+                        case 'a': this.dashPlayer(-1, 0); break;
+                        case 'd': this.dashPlayer(1, 0); break;
+                    }
+                });
+            }
+        }
+
+        const canvas = document.getElementById('mazeCanvas');
+        new MazeGame(canvas);
+    </script>
+</body>
+</html>
